@@ -1,0 +1,52 @@
+﻿services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mp_db
+      POSTGRES_USER: mp_user
+      POSTGRES_PASSWORD: mp_PASS_CHANGE_ME
+    volumes:
+      - mp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mp_user -d mp_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend/ListamCompetitor.Api   # <-- путь до твоего API на сервере
+      dockerfile: Dockerfile
+    container_name: mp_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # DB
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=mp_db;Username=mp_user;Password=mp_PASS_CHANGE_ME
+
+      # JWT
+      Jwt__Issuer: Marketplace
+      Jwt__Audience: Marketplace
+      Jwt__Key: CHANGE_ME_SUPER_SECRET_32_CHARS_MIN
+
+      # MAIL (SMTP)
+      Mail__Host: smtp.example.com
+      Mail__Port: "587"
+      Mail__User: no-reply@example.com
+      Mail__Password: SMTP_PASSWORD_HERE
+      Mail__FromEmail: no-reply@example.com
+      Mail__FromName: Marketplace
+      Mail__UseSsl: "false"
+      Mail__UseStartTls: "true"
+
+    ports:
+      - "8080:8080"
+
+volumes:
+  mp_pgdata:

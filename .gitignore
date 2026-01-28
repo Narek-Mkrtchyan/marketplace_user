@@ -1,0 +1,98 @@
+﻿# =====================
+# OS / IDE
+# =====================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+*.log
+
+# =====================
+# .NET
+# =====================
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+*.deps.json
+*.runtimeconfig.json
+
+# Rider
+.idea/
+*.DotSettings.user
+
+# =====================
+# ASP.NET Core
+# =====================
+appsettings.Production.json
+appsettings.Local.json
+secrets.json
+
+# =====================
+# Entity Framework
+# =====================
+Migrations/*.Designer.cs
+Migrations/*.csproj
+__EFMigrationsHistory
+
+# =====================
+# Node / Frontend
+# =====================
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+npm-debug.log*
+yarn-error.log*
+
+# =====================
+# Environment files
+# =====================
+.env
+.env.*
+!.env.example
+
+# =====================
+# Docker
+# =====================
+docker-data/
+**/docker-data/
+*.env.docker
+
+# =====================
+# PostgreSQL
+# =====================
+*.sql
+*.dump
+.pgdata/
+pgdata/
+
+# =====================
+# Uploads / files
+# =====================
+uploads/
+storage/
+files/
+
+# =====================
+# Certificates
+# =====================
+*.pem
+*.key
+*.crt
+
+# ignore build/db/scripts
+bin/
+obj/
+*.db
+*.db-wal
+*.db-shm
+dotnet-install.ps1
+.env
+appsettings.Production.json
+
