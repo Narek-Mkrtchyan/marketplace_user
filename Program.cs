@@ -23,6 +23,7 @@ builder.Services.AddCors(opt =>
 {
     opt.AddDefaultPolicy(p => p
         .WithOrigins(
+            "https://dev.moll.am",
             "http://localhost:5173",
             "http://127.0.0.1:5173"
         )
@@ -31,6 +32,7 @@ builder.Services.AddCors(opt =>
         .AllowCredentials()
     );
 });
+
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
