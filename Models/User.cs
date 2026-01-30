@@ -14,7 +14,8 @@ public class User
     public string? Gender { get; set; }  
     public string? Country { get; set; }
     public string? City { get; set; }
-
+    public string? PhotoUrl { get; set; }
+    
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
