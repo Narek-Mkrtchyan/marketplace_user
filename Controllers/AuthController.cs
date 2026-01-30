@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using ListamCompetitor.Api.Auth;
 using ListamCompetitor.Api.Data;
 using ListamCompetitor.Api.Models;
@@ -25,60 +26,65 @@ public class AuthController : ControllerBase
         _jwtSvc = jwtSvc;
     }
     
-    public record GoogleAuthRequest(string IdToken);
-    [HttpPost("google")]
-    public async Task<IActionResult> Google([FromBody] GoogleAuthRequest req)
+public record GoogleAuthRequest(string IdToken);
+
+[HttpPost("google")]
+public async Task<IActionResult> Google([FromBody] GoogleAuthRequest req, [FromServices] IConfiguration cfg)
+{
+    if (string.IsNullOrWhiteSpace(req.IdToken))
+        return BadRequest(new { message = "idToken is required" });
+
+    using var client = new HttpClient();
+
+    string json;
+    try
     {
-        if (string.IsNullOrWhiteSpace(req.IdToken))
-            return BadRequest(new { message = "idToken is required" });
+        json = await client.GetStringAsync($"https://oauth2.googleapis.com/tokeninfo?id_token={req.IdToken}");
+    }
+    catch (Exception ex)
+    {
+        return Unauthorized(new { message = "Google tokeninfo failed", detail = ex.Message });
+    }
 
-        // Проверяем id_token через Google tokeninfo
-        using var client = new HttpClient();
-        var json = await client.GetStringAsync(
-            $"https://oauth2.googleapis.com/tokeninfo?id_token={req.IdToken}"
-        );
+    var payload = JsonSerializer.Deserialize<GoogleTokenInfo>(json);
+    if (string.IsNullOrWhiteSpace(payload?.Email))
+        return Unauthorized(new { message = "Google tokeninfo: email missing" });
 
-        var payload = JsonSerializer.Deserialize<GoogleTokenInfo>(json);
-        if (payload?.Email is null)
-            return Unauthorized();
+    var expectedAud = cfg["Google:ClientId"] ?? "";
+    if (!string.IsNullOrWhiteSpace(expectedAud) && payload.Aud != expectedAud)
+        return Unauthorized(new { message = "Invalid Google token audience", aud = payload.Aud });
 
-        // ВАЖНО: проверим, что токен для твоего клиента (aud)
-        // сюда вставь твой Google Client ID
-        var expectedAud = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID") ?? "";
-        if (!string.IsNullOrWhiteSpace(expectedAud) && payload.Aud != expectedAud)
-            return Unauthorized(new { message = "Invalid Google token audience" });
+    var email = payload.Email.Trim().ToLowerInvariant();
 
-        var email = payload.Email.Trim().ToLowerInvariant();
-
-        var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
-        if (user == null)
+    var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
+    if (user == null)
+    {
+        user = new User
         {
-            user = new User
-            {
-                Email = email,
-                FirstName = payload.GivenName,
-                LastName = payload.FamilyName,
-                PhotoUrl = payload.Picture,       // можно сохранить гугл-аватар
-                CreatedAtUtc = DateTime.UtcNow,
-                PasswordHash = ""                 // пароль не нужен
-            };
-
-            _db.Users.Add(user);
-            await _db.SaveChangesAsync();
-        }
-
-        var token = _jwtSvc.CreateToken(user);
-        return Ok(new { token, email = user.Email });
+            Email = email,
+            FirstName = payload.GivenName,
+            LastName = payload.FamilyName,
+            PhotoUrl = payload.Picture,
+            CreatedAtUtc = DateTime.UtcNow,
+            PasswordHash = ""
+        };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
     }
 
-    private class GoogleTokenInfo
-    {
-        public string? Email { get; set; }
-        public string? Aud { get; set; }
-        public string? GivenName { get; set; }
-        public string? FamilyName { get; set; }
-        public string? Picture { get; set; }
-    }
+    var token = _jwtSvc.CreateToken(user);
+    return Ok(new { token, email = user.Email });
+}
+
+private class GoogleTokenInfo
+{
+    [JsonPropertyName("email")] public string? Email { get; set; }
+    [JsonPropertyName("aud")] public string? Aud { get; set; }
+    [JsonPropertyName("given_name")] public string? GivenName { get; set; }
+    [JsonPropertyName("family_name")] public string? FamilyName { get; set; }
+    [JsonPropertyName("picture")] public string? Picture { get; set; }
+}
+
     // POST /auth/register/code
     [HttpPost("register/code")]
     public async Task<IActionResult> SendRegisterCode([FromBody] SendRegisterCodeRequest req)
