@@ -2,7 +2,8 @@ namespace ListamCompetitor.Api.Models;
 
 public class User
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
+
 
     public string Email { get; set; } = null!;
     public string PasswordHash { get; set; } = null!;
@@ -10,7 +11,7 @@ public class User
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? Phone { get; set; }
-    public string? Gender { get; set; }   // "man" | "woman"
+    public string? Gender { get; set; }  
     public string? Country { get; set; }
     public string? City { get; set; }
 

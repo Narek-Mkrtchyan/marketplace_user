@@ -21,6 +21,11 @@ public class AppDbContext : DbContext
             .Property(x => x.Email)
             .HasMaxLength(320);
 
+        modelBuilder.Entity<User>()
+            .Property(x => x.Id)
+            .ValueGeneratedOnAdd()
+            .HasDefaultValueSql("gen_random_uuid()");
+
         modelBuilder.Entity<Listing>()
             .Property(x => x.Title)
             .HasMaxLength(200);

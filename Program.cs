@@ -81,8 +81,9 @@ app.UseAuthorization();
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await DbSeed.EnsureSeededAsync(db);
+    var cs = builder.Configuration.GetConnectionString("Default");
+    Console.WriteLine("EF ConnectionString = " + cs);
+
 }
 // using (var scope = app.Services.CreateScope())
 // {
@@ -135,8 +136,7 @@ app.MapPost("/auth/register/code", async (AppDbContext db, IMailService mail, Se
     }
     catch (Exception ex)
     {
-        // если письмо не ушло — лучше откатить код, чтобы не засорять таблицу
-        // (можешь убрать, если хочешь хранить даже при ошибке)
+       
         return Results.BadRequest(new { message = $"Mail error: {ex.Message}" });
     }
 
@@ -156,7 +156,6 @@ app.MapPost("/auth/register/complete", async (AppDbContext db, JwtTokenService j
     if (string.IsNullOrWhiteSpace(req.Code))
         return Results.BadRequest(new { message = "Code is required" });
 
-    // базовые проверки полей (чтобы не было пустых)
     if (string.IsNullOrWhiteSpace(req.FirstName) ||
         string.IsNullOrWhiteSpace(req.LastName) ||
         string.IsNullOrWhiteSpace(req.Phone) ||
