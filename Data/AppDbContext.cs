@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ListamCompetitor.Api.Models;
+using ListamCompetitor.Api.Models;
 
 namespace ListamCompetitor.Api.Data;
 
@@ -26,4 +27,6 @@ public class AppDbContext : DbContext
 
         base.OnModelCreating(modelBuilder);
     }
+    public DbSet<EmailVerificationCode> EmailVerificationCodes => Set<EmailVerificationCode>();
+
 }
