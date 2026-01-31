@@ -25,65 +25,75 @@ public class AuthController : ControllerBase
         _mail = mail;
         _jwtSvc = jwtSvc;
     }
-    
-public record GoogleAuthRequest(string IdToken);
 
-[HttpPost("google")]
-public async Task<IActionResult> Google([FromBody] GoogleAuthRequest req, [FromServices] IConfiguration cfg)
-{
-    if (string.IsNullOrWhiteSpace(req.IdToken))
-        return BadRequest(new { message = "idToken is required" });
+    public record GoogleAuthRequest(string IdToken);
 
-    using var client = new HttpClient();
-
-    string json;
-    try
+    [HttpPost("google")]
+    public async Task<IActionResult> Google([FromBody] GoogleAuthRequest req, [FromServices] IConfiguration cfg)
     {
-        json = await client.GetStringAsync($"https://oauth2.googleapis.com/tokeninfo?id_token={req.IdToken}");
-    }
-    catch (Exception ex)
-    {
-        return Unauthorized(new { message = "Google tokeninfo failed", detail = ex.Message });
-    }
+        if (string.IsNullOrWhiteSpace(req.IdToken))
+            return BadRequest(new { message = "idToken is required" });
 
-    var payload = JsonSerializer.Deserialize<GoogleTokenInfo>(json);
-    if (string.IsNullOrWhiteSpace(payload?.Email))
-        return Unauthorized(new { message = "Google tokeninfo: email missing" });
+        using var client = new HttpClient();
 
-    var expectedAud = cfg["Google:ClientId"] ?? "";
-    if (!string.IsNullOrWhiteSpace(expectedAud) && payload.Aud != expectedAud)
-        return Unauthorized(new { message = "Invalid Google token audience", aud = payload.Aud });
-
-    var email = payload.Email.Trim().ToLowerInvariant();
-
-    var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
-    if (user == null)
-    {
-        user = new User
+        string json;
+        try
         {
-            Email = email,
-            FirstName = payload.GivenName,
-            LastName = payload.FamilyName,
-            PhotoUrl = payload.Picture,
-            CreatedAtUtc = DateTime.UtcNow,
-            PasswordHash = ""
-        };
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync();
+            json = await client.GetStringAsync($"https://oauth2.googleapis.com/tokeninfo?id_token={req.IdToken}");
+        }
+        catch (Exception ex)
+        {
+            return Unauthorized(new { message = "Google tokeninfo failed", detail = ex.Message });
+        }
+
+        var payload = JsonSerializer.Deserialize<GoogleTokenInfo>(json);
+        if (string.IsNullOrWhiteSpace(payload?.Email))
+            return Unauthorized(new { message = "Google tokeninfo: email missing" });
+
+        var expectedAud = cfg["Google:ClientId"] ?? "";
+        if (!string.IsNullOrWhiteSpace(expectedAud) && payload.Aud != expectedAud)
+            return Unauthorized(new { message = "Invalid Google token audience", aud = payload.Aud });
+
+        var email = payload.Email.Trim().ToLowerInvariant();
+
+        var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
+        if (user == null)
+        {
+            user = new User
+            {
+                Email = email,
+                FirstName = payload.GivenName,
+                LastName = payload.FamilyName,
+                PhotoUrl = payload.Picture,
+                CreatedAtUtc = DateTime.UtcNow,
+                PasswordHash = "",
+                Role = "user" // ✅ default
+            };
+            _db.Users.Add(user);
+            await _db.SaveChangesAsync();
+        }
+
+        var token = _jwtSvc.CreateToken(user);
+
+        var userName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
+        return Ok(new
+        {
+            token,
+            email = user.Email,
+            role = user.Role,
+            userName = string.IsNullOrWhiteSpace(userName) ? user.Email : userName,
+            userPhoto = user.PhotoUrl
+        });
     }
 
-    var token = _jwtSvc.CreateToken(user);
-    return Ok(new { token, email = user.Email });
-}
-
-private class GoogleTokenInfo
-{
-    [JsonPropertyName("email")] public string? Email { get; set; }
-    [JsonPropertyName("aud")] public string? Aud { get; set; }
-    [JsonPropertyName("given_name")] public string? GivenName { get; set; }
-    [JsonPropertyName("family_name")] public string? FamilyName { get; set; }
-    [JsonPropertyName("picture")] public string? Picture { get; set; }
-}
+    private class GoogleTokenInfo
+    {
+        [JsonPropertyName("email")] public string? Email { get; set; }
+        [JsonPropertyName("aud")] public string? Aud { get; set; }
+        [JsonPropertyName("given_name")] public string? GivenName { get; set; }
+        [JsonPropertyName("family_name")] public string? FamilyName { get; set; }
+        [JsonPropertyName("picture")] public string? Picture { get; set; }
+    }
 
     // POST /auth/register/code
     [HttpPost("register/code")]
@@ -170,6 +180,7 @@ private class GoogleTokenInfo
             Gender = req.Gender.Trim(),
             Country = req.Country.Trim(),
             City = req.City.Trim(),
+            Role = "user" 
         };
 
         var hasher = new PasswordHasher<User>();
@@ -181,7 +192,16 @@ private class GoogleTokenInfo
         await _db.SaveChangesAsync();
 
         var token = _jwtSvc.CreateToken(user);
-        return Ok(new { token, email = user.Email });
+
+        var userName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
+        return Ok(new
+        {
+            token,
+            email = user.Email,
+            role = user.Role,
+            userName = string.IsNullOrWhiteSpace(userName) ? user.Email : userName,
+            userPhoto = user.PhotoUrl
+        });
     }
 
     [HttpPost("login")]
@@ -193,16 +213,93 @@ private class GoogleTokenInfo
 
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
         if (user is null)
-            return Unauthorized();
+            return Unauthorized(new { message = "Invalid credentials" });
 
         var hasher = new PasswordHasher<User>();
         var vr = hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password);
         if (vr == PasswordVerificationResult.Failed)
-            return Unauthorized();
+            return Unauthorized(new { message = "Invalid credentials" });
 
         var token = _jwtSvc.CreateToken(user);
-        return Ok(new { token, email = user.Email });
+
+        var userName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
+        return Ok(new
+        {
+            token,
+            email = user.Email,
+            role = user.Role,
+            userName = string.IsNullOrWhiteSpace(userName) ? user.Email : userName,
+            userPhoto = user.PhotoUrl
+        });
     }
+
+[HttpPost("admin/login")]
+public async Task<IActionResult> AdminLogin(
+    [FromBody] LoginRequest req,
+    [FromServices] IConfiguration cfg)
+{
+    var email = (req.Email ?? "").Trim().ToLowerInvariant();
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
+        return BadRequest(new { message = "Email and password are required" });
+
+    var enabled = cfg.GetValue<bool>("SeedAdmin:Enabled");
+    var defEmail = (cfg["SeedAdmin:Email"] ?? "").Trim().ToLowerInvariant();
+    var defPass  = cfg["SeedAdmin:Password"] ?? "";
+
+    if (enabled && !string.IsNullOrWhiteSpace(defEmail) && !string.IsNullOrWhiteSpace(defPass))
+    {
+        var exists = await _db.Users.AnyAsync(x => x.Email == defEmail);
+        if (!exists)
+        {
+            var admin = new User
+            {
+                Email = defEmail,
+                FirstName = "Admin",
+                LastName = "User",
+                Role = "admin",
+                CreatedAtUtc = DateTime.UtcNow,
+                PasswordHash = "",
+            };
+
+            var hasher0 = new PasswordHasher<User>();
+            admin.PasswordHash = hasher0.HashPassword(admin, defPass);
+
+            _db.Users.Add(admin);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
+    if (user is null)
+        return Unauthorized(new { message = "Invalid credentials" });
+
+    if (enabled && email == defEmail && user.Role != "admin")
+    {
+        user.Role = "admin";
+        await _db.SaveChangesAsync();
+    }
+
+    if (!string.Equals(user.Role, "admin", StringComparison.OrdinalIgnoreCase))
+        return StatusCode(403, new { message = "Admin only" });
+
+    var hasher = new PasswordHasher<User>();
+    var vr = hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password);
+    if (vr == PasswordVerificationResult.Failed)
+        return Unauthorized(new { message = "Invalid credentials" });
+
+    var token = _jwtSvc.CreateToken(user);
+
+    var userName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
+    return Ok(new
+    {
+        token,
+        email = user.Email,
+        role = user.Role,
+        userName = string.IsNullOrWhiteSpace(userName) ? user.Email : userName,
+        userPhoto = user.PhotoUrl
+    });
+}
+
 
     [Authorize]
     [HttpGet("me")]
@@ -224,6 +321,8 @@ private class GoogleTokenInfo
             gender = user.Gender,
             country = user.Country,
             city = user.City,
+            photoUrl = user.PhotoUrl, // ✅ добавили
+            role = user.Role,         // ✅ добавили
             createdAtUtc = user.CreatedAtUtc
         });
     }

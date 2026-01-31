@@ -15,7 +15,9 @@ public class User
     public string? Country { get; set; }
     public string? City { get; set; }
     public string? PhotoUrl { get; set; }
-    
+    public string Role { get; set; } = "user";
+    public bool IsEnabled { get; set; } = true;
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
