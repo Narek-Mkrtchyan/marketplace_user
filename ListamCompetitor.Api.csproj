@@ -26,4 +26,11 @@
   <ItemGroup>
     <Folder Include="Auth\google\" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Catalog.Api\**\*.cs" />
+    <Content Remove="Catalog.Api\**\*" />
+    <EmbeddedResource Remove="Catalog.Api\**\*" />
+    <None Remove="Catalog.Api\**\*" />
+  </ItemGroup>
+
 </Project>

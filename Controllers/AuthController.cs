@@ -321,8 +321,8 @@ public async Task<IActionResult> AdminLogin(
             gender = user.Gender,
             country = user.Country,
             city = user.City,
-            photoUrl = user.PhotoUrl, // ✅ добавили
-            role = user.Role,         // ✅ добавили
+            photoUrl = user.PhotoUrl, 
+            role = user.Role,        
             createdAtUtc = user.CreatedAtUtc
         });
     }

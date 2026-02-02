@@ -30,7 +30,6 @@ public class ProfileController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(x => x.Email == email);
         if (user is null) return Unauthorized();
 
-        // Меняем только эти поля (email не трогаем)
         user.FirstName = (req.FirstName ?? "").Trim();
         user.LastName  = (req.LastName  ?? "").Trim();
         user.Phone     = (req.Phone     ?? "").Trim();

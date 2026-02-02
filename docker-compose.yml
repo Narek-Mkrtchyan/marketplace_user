@@ -17,7 +17,7 @@
 
   api:
     build:
-      context: ./backend/ListamCompetitor.Api   # <-- путь до твоего API на сервере
+      context: ./backend/ListamCompetitor.Api  
       dockerfile: Dockerfile
     container_name: mp_api
     restart: unless-stopped

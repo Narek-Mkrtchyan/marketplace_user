@@ -1,0 +1,39 @@
+﻿services:
+  catalog_postgres:
+    image: postgres:16-alpine
+    container_name: catalog_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: catalog_user
+      POSTGRES_PASSWORD: catalog_pass
+    volumes:
+      - catalog_pgdata:/var/lib/postgresql/data
+    ports:
+      - "55434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog_user -d catalog_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  catalog_api:
+    build:
+      context: ./catalog-api/Catalog.Api
+      dockerfile: Dockerfile
+    container_name: catalog_api
+    restart: unless-stopped
+    depends_on:
+      catalog_postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Catalog: Host=catalog_postgres;Port=5432;Database=catalog_db;Username=catalog_user;Password=catalog_pass
+      Jwt__Issuer: Marketplace
+      Jwt__Audience: Marketplace
+      Jwt__Key: CHANGE_ME_SUPER_SECRET_32_CHARS
+    ports:
+      - "8091:8080"
+
+volumes:
+  catalog_pgdata:
