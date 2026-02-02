@@ -14,97 +14,101 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
-        // builder.WebHost.UseUrls("http://localhost:5001");
+        // ===== URL (container listens on 8080) =====
+        // ВАЖНО: если это mp_api в Docker – НЕ 5001
+        builder.WebHost.UseUrls("http://0.0.0.0:8080");
 
+        // ===== SERVICES =====
         builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
-        builder.Services.AddDirectoryBrowser();
+
         builder.Services.AddDbContext<CatalogDbContext>(opt =>
         {
-            opt.UseNpgsql(builder.Configuration.GetConnectionString("Catalog"));
+            opt.UseNpgsql(builder.Configuration.GetConnectionString("Default"));
         });
 
-        builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+        // ===== JWT =====
+        builder.Services.Configure<JwtOptions>(
+            builder.Configuration.GetSection("Jwt"));
+
         builder.Services.AddScoped<JwtTokenService>();
-        builder.Services.AddHttpClient("UsersApi", client =>
-        {
-            client.BaseAddress = new Uri(builder.Configuration["Services:UsersApi"]!);
-            client.Timeout = TimeSpan.FromSeconds(3);
-        });
 
-        // ===== JWT config read =====
-        var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? throw new Exception("Jwt:Issuer is missing");
-        var jwtAudience = builder.Configuration["Jwt:Audience"] ?? throw new Exception("Jwt:Audience is missing");
-        var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new Exception("Jwt:Key is missing");
+        var jwtIssuer = builder.Configuration["Jwt:Issuer"]
+            ?? throw new Exception("Jwt:Issuer is missing");
 
-        // ✅ DEBUG до Build()
-        Console.WriteLine("ENV (builder) = " + (builder.Environment?.EnvironmentName ?? "<null>"));
-        Console.WriteLine("Jwt:Issuer = " + jwtIssuer);
-        Console.WriteLine("Jwt:Audience = " + jwtAudience);
-        Console.WriteLine("Jwt:Key(from config) len = " + jwtKey.Length);
-        Console.WriteLine("Jwt__Key(env) len = " + (Environment.GetEnvironmentVariable("Jwt__Key")?.Length ?? 0));
-        Console.WriteLine("ASPNETCORE_ENVIRONMENT(env) = " + (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "<null>"));
-        Console.WriteLine("Jwt:Key head = " + jwtKey.Substring(0, Math.Min(5, jwtKey.Length)));
-        Console.WriteLine("Jwt:Key tail = " + jwtKey.Substring(Math.Max(0, jwtKey.Length - 5)));
+        var jwtAudience = builder.Configuration["Jwt:Audience"]
+            ?? throw new Exception("Jwt:Audience is missing");
 
+        var jwtKey = builder.Configuration["Jwt:Key"]
+            ?? throw new Exception("Jwt:Key is missing");
 
-        builder.Services.AddAuthorization(options =>
-        {
-            options.AddPolicy("AdminOnly", p =>
-                p.RequireAssertion(ctx =>
+        // ===== AUTH =====
+        builder.Services.AddAuthentication("Bearer")
+            .AddJwtBearer("Bearer", opt =>
+            {
+                opt.TokenValidationParameters = new TokenValidationParameters
                 {
-                    var role = ctx.User.Claims.FirstOrDefault(c =>
-                        c.Type == "role" || c.Type.EndsWith("/claims/role"))?.Value;
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidateLifetime = true,
 
-                    return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase)
-                           || string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
-                }));
-        });
+                    ValidIssuer = jwtIssuer,
+                    ValidAudience = jwtAudience,
+                    IssuerSigningKey =
+                        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+                };
+            });
+
+        builder.Services.AddAuthorization();
 
         builder.Services.AddCors(opt =>
         {
-            opt.AddPolicy("Default", p => p
-                .WithOrigins(
-                    "https://dev.moll.am",
-                    "http://localhost:5173",
-                    "http://localhost:5174",
-                    "http://127.0.0.1:5173",
-                    "http://127.0.0.1:5174"
-                )
-                .AllowAnyHeader()
-                .AllowAnyMethod()
-                .AllowCredentials()
+            opt.AddPolicy("Default", p =>
+                p.WithOrigins(
+                        "https://dev.moll.am",
+                        "https://api.dev.moll.am",
+                        "http://localhost:5173",
+                        "http://localhost:5174"
+                    )
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials()
             );
         });
 
         var app = builder.Build();
-        app.UseDeveloperExceptionPage();
-        app.UseStaticFiles();
 
-        app.Use(async (ctx, next) =>
+        // ===== PIPELINE (ПОРЯДОК ВАЖЕН) =====
+
+        if (app.Environment.IsDevelopment())
         {
-            try
-            {
-                await next();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(" UNHANDLED EXCEPTION:");
-                Console.WriteLine(ex.ToString());
-                throw;
-            }
-        });
+            app.UseDeveloperExceptionPage();
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
 
-        Console.WriteLine("ENV (app) = " + app.Environment.EnvironmentName);
+        app.UseRouting();
 
+        app.UseCors("Default");
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        // ===== ENDPOINTS =====
+
+        // health
+        app.MapGet("/health", () => Results.Ok(new { ok = true }));
+
+        // debug token
         app.MapGet("/debug/token", () =>
         {
             var claims = new[]
             {
                 new System.Security.Claims.Claim("sub", Guid.NewGuid().ToString()),
-                new System.Security.Claims.Claim("email", "admin@moll.am"),
-                new System.Security.Claims.Claim("role", "admin"),
+                new System.Security.Claims.Claim("email", "debug@moll.am"),
+                new System.Security.Claims.Claim("role", "user"),
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
@@ -114,44 +118,37 @@ public class Program
                 issuer: jwtIssuer,
                 audience: jwtAudience,
                 claims: claims,
-                expires: DateTime.UtcNow.AddHours(2),
+                expires: DateTime.UtcNow.AddHours(1),
                 signingCredentials: creds
             );
 
             return Results.Ok(new
             {
-                token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token)
+                token = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+                    .WriteToken(token)
             });
         });
 
-       
-        app.MapPost("/api/admin/auth/login", (IConfiguration cfg, JwtTokenService jwt, AdminLoginRequest req) =>
-        {
-            var email = (req.Email ?? "").Trim().ToLowerInvariant();
-            var password = req.Password ?? "";
+        // admin login
+        app.MapPost("/api/admin/auth/login",
+            (IConfiguration cfg, JwtTokenService jwt, AdminLoginRequest req) =>
+            {
+                var email = (req.Email ?? "").Trim().ToLowerInvariant();
+                var password = req.Password ?? "";
 
-            var adminEmail = (cfg["Admin:Email"] ?? "").Trim().ToLowerInvariant();
-            var adminPass = cfg["Admin:Password"] ?? "";
+                var adminEmail = (cfg["Admin:Email"] ?? "")
+                    .Trim().ToLowerInvariant();
 
-            if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPass))
-                return Results.Problem("Admin credentials are not configured", statusCode: 500);
+                var adminPass = cfg["Admin:Password"] ?? "";
 
-            if (email != adminEmail || password != adminPass)
-                return Results.Unauthorized();
+                if (email != adminEmail || password != adminPass)
+                    return Results.Unauthorized();
 
-            var token = jwt.CreateAdminToken(email);
-            return Results.Ok(new { token, email });
-        });
+                var token = jwt.CreateAdminToken(email);
+                return Results.Ok(new { token, email });
+            });
 
-        app.UseCors("Default");
-        app.UseStaticFiles(); 
-
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseSwagger();
-            app.UseSwaggerUI();
-        }
-
+        // controllers (/api/auth/google и т.д.)
         app.MapControllers();
 
         app.Run();
