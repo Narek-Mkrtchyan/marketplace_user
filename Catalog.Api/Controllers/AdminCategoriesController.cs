@@ -22,7 +22,7 @@ public class AdminCategoriesController : ControllerBase
         var items = await _db.Categories
             .AsNoTracking()
             .OrderByDescending(x => x.CreatedAtUtc)
-            .Select(x => new CategoryListItemDto(x.Id, x.Name, x.Slug, x.ParentId, x.IsEnabled))
+            .Select(x => new CategoryListItemDto(x.Id, x.Slug, x.ParentId, x.IsEnabled))
             .ToListAsync();
 
         return Ok(items);
@@ -31,11 +31,10 @@ public class AdminCategoriesController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<CategoryListItemDto>> Create([FromBody] CreateCategoryRequest req)
     {
-        var name = (req.Name ?? "").Trim();
-        if (name.Length < 2) return BadRequest("Name is too short");
+   
 
         var slug = (req.Slug ?? "").Trim();
-        slug = string.IsNullOrWhiteSpace(slug) ? Slug.Slugify(name) : Slug.Slugify(slug);
+        slug = string.IsNullOrWhiteSpace(slug) ? Slug.Slugify(slug) : Slug.Slugify(slug);
         if (string.IsNullOrWhiteSpace(slug)) return BadRequest("Slug is invalid");
 
         var exists = await _db.Categories.AnyAsync(x => x.Slug == slug);
@@ -43,7 +42,6 @@ public class AdminCategoriesController : ControllerBase
 
         var c = new Category
         {
-            Name = name,
             Slug = slug,
             ParentId = req.ParentId,
             IsEnabled = req.IsEnabled ?? true,
@@ -54,7 +52,7 @@ public class AdminCategoriesController : ControllerBase
         _db.Categories.Add(c);
         await _db.SaveChangesAsync();
 
-        return Ok(new CategoryListItemDto(c.Id, c.Name, c.Slug, c.ParentId, c.IsEnabled));
+        return Ok(new CategoryListItemDto(c.Id, c.Slug, c.ParentId, c.IsEnabled));
     }
 
     [HttpPut("{id:guid}")]
@@ -63,17 +61,15 @@ public class AdminCategoriesController : ControllerBase
         var c = await _db.Categories.FirstOrDefaultAsync(x => x.Id == id);
         if (c == null) return NotFound();
 
-        var name = (req.Name ?? "").Trim();
-        if (name.Length < 2) return BadRequest("Name is too short");
-
+       
         var slug = (req.Slug ?? "").Trim();
-        slug = string.IsNullOrWhiteSpace(slug) ? Slug.Slugify(name) : Slug.Slugify(slug);
+        slug = string.IsNullOrWhiteSpace(slug) ? Slug.Slugify(slug) : Slug.Slugify(slug);
         if (string.IsNullOrWhiteSpace(slug)) return BadRequest("Slug is invalid");
 
         var exists = await _db.Categories.AnyAsync(x => x.Slug == slug && x.Id != id);
         if (exists) return Conflict("Slug already exists");
 
-        c.Name = name;
+       
         c.Slug = slug;
         c.ParentId = req.ParentId;
         c.IsEnabled = req.IsEnabled ?? c.IsEnabled;
@@ -81,7 +77,7 @@ public class AdminCategoriesController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        return Ok(new CategoryListItemDto(c.Id, c.Name, c.Slug, c.ParentId, c.IsEnabled));
+        return Ok(new CategoryListItemDto(c.Id, c.Slug, c.ParentId, c.IsEnabled));
     }
 
     [HttpDelete("{id:guid}")]

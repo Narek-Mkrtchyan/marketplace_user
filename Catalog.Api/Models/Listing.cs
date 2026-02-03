@@ -22,4 +22,6 @@ public class Listing
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public ICollection<ListingPhoto> Photos { get; set; } = new List<ListingPhoto>();
+    public ICollection<ListingAttributeValue> Attributes { get; set; } = new List<ListingAttributeValue>();
+
 }

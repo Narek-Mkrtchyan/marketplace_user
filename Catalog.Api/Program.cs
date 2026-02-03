@@ -4,6 +4,7 @@ using Catalog.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.FileProviders;
+using System.Text.Json;
 
 namespace Catalog.Api;
 
@@ -20,9 +21,15 @@ public class Program
         {
             builder.WebHost.UseUrls("http://localhost:5001");
         }
+        
 
+        builder.Services.AddControllers()
+            .AddJsonOptions(o =>
+            {
+                o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+            });
 
-        builder.Services.AddControllers();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
         builder.Services.AddDirectoryBrowser();
@@ -157,7 +164,6 @@ public class Program
         });
 
         app.UseCors("Default");
-        app.UseStaticFiles(); 
 
         if (app.Environment.IsDevelopment())
         {
