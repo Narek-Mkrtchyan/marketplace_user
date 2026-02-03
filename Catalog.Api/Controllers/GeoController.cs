@@ -18,6 +18,9 @@ public class GeoController : ControllerBase
         return lang is "hy" or "ru" or "en" or "hi" ? lang : "ru";
     }
 
+    // ----------------------------
+    // GET /api/geo/regions?lang=ru
+    // ----------------------------
     [HttpGet("regions")]
     public async Task<ActionResult<List<RegionDto>>> GetRegions([FromQuery] string? lang)
     {
@@ -25,16 +28,25 @@ public class GeoController : ControllerBase
 
         var items = await _db.Regions.AsNoTracking()
             .Where(r => r.IsActive)
-            .Join(_db.RegionI18n.AsNoTracking().Where(i => i.Lang == L),
-                r => r.Id,
-                i => i.RegionId,
-                (r, i) => new RegionDto(r.Id, r.Code, i.Name))
+            .Select(r => new
+            {
+                r.Id,
+                r.Code,
+                Name = _db.RegionI18n
+                    .Where(i => i.RegionId == r.Id && i.Lang == L)
+                    .Select(i => i.Name)
+                    .FirstOrDefault() ?? r.Code
+            })
             .OrderBy(x => x.Name)
+            .Select(x => new RegionDto(x.Id, x.Code, x.Name))
             .ToListAsync();
 
         return Ok(items);
     }
 
+    // ---------------------------------------------
+    // GET /api/geo/cities?region=AM-01&lang=ru&query=
+    // ---------------------------------------------
     [HttpGet("cities")]
     public async Task<ActionResult<List<CityDto>>> GetCities(
         [FromQuery] string? region,
@@ -44,33 +56,65 @@ public class GeoController : ControllerBase
     {
         var L = NormalizeLang(lang);
 
-        var q = _db.Cities.AsNoTracking()
+        // 1️⃣ базовый набор: ВСЕ активные города (включая без области)
+        var cities = _db.Cities.AsNoTracking()
             .Where(c => c.IsActive);
 
+        // 2️⃣ фильтр по области — ТОЛЬКО если region передан
         if (!string.IsNullOrWhiteSpace(region))
         {
-            q = q.Where(c => c.Region.Code == region);
+            var reg = region.Trim();
+
+            cities =
+                from c in cities
+                join r in _db.Regions.AsNoTracking()
+                    on c.RegionId equals r.Id   // RegionId NULL сюда не попадёт — это ок
+                where r.Code == reg
+                select c;
         }
 
+        // 3️⃣ сначала считаем Name → потом сортировка
+        var rows = cities.Select(c => new
+        {
+            c.Id,
+            c.RegionId,
+            c.Code,
+            Name =
+                _db.CityI18n
+                    .Where(i => i.CityId == c.Id && i.Lang == L)
+                    .Select(i => i.Name)
+                    .FirstOrDefault() ?? c.Code
+        });
+
+        // 4️⃣ поиск
         if (!string.IsNullOrWhiteSpace(query))
         {
             var s = query.Trim();
-            q = q.Where(c => c.I18n.Any(i => i.Lang == L && EF.Functions.ILike(i.Name, $"%{s}%")));
+            rows = rows.Where(x =>
+                EF.Functions.ILike(x.Name, $"%{s}%") ||
+                EF.Functions.ILike(x.Code, $"%{s}%")
+            );
         }
 
-        var items = await q
-            .Select(c => new CityDto(
-                c.Id,
-                c.RegionId,
-                c.Code,
-                c.I18n.Where(i => i.Lang == L).Select(i => i.Name).FirstOrDefault() ?? c.Code
-            ))
+        // 5️⃣ финал
+        var items = await rows
             .OrderBy(x => x.Name)
+            .Select(x => new CityDto(
+                x.Id,
+                x.RegionId,
+                x.Code,
+                x.Name
+            ))
             .ToListAsync();
 
         return Ok(items);
     }
 
+
+
+    // -------------------------------------
+    // GET /api/geo/cities/search?lang=ru&q=va
+    // -------------------------------------
     [HttpGet("cities/search")]
     public async Task<ActionResult<List<CitySearchItemDto>>> SearchCities(
         [FromQuery] string? lang,
@@ -81,7 +125,7 @@ public class GeoController : ControllerBase
         var s = (q ?? "").Trim();
         if (s.Length < 2) return Ok(new List<CitySearchItemDto>());
 
-        var query =
+        var baseQuery =
             from c in _db.Cities.AsNoTracking()
             join ci in _db.CityI18n.AsNoTracking()
                 on c.Id equals ci.CityId
@@ -92,7 +136,10 @@ public class GeoController : ControllerBase
             where c.IsActive
                   && ci.Lang == L
                   && ri.Lang == L
-                  && EF.Functions.ILike(ci.Name, $"%{s}%")
+                  && (
+                      EF.Functions.ILike(ci.Name, $"%{s}%")
+                      || EF.Functions.ILike(c.Code, $"%{s}%") 
+                  )
             select new
             {
                 CityId = c.Id,
@@ -101,8 +148,8 @@ public class GeoController : ControllerBase
                 RegionName = ri.Name
             };
 
-        // 2) Сортируем по строке CityName (не по DTO)
-        var rows = await query
+        var rows = await baseQuery
+            .Distinct()
             .OrderBy(x => x.CityName)
             .Take(20)
             .ToListAsync();
@@ -118,5 +165,4 @@ public class GeoController : ControllerBase
 
         return Ok(result);
     }
-
 }
