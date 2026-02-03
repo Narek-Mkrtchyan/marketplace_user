@@ -43,8 +43,6 @@ public class ListingsController : ControllerBase
         try
         {
             var client = _http.CreateClient("UsersApi");
-
-            // GET /api/users/{id}/public
             var resp = await client.GetAsync($"api/users/{userId}/public", ct);
             if (!resp.IsSuccessStatusCode) return null;
 
@@ -81,10 +79,10 @@ public class ListingsController : ControllerBase
 
                 x.CityId == null ? null :
                     (from c in _db.Cities
-                        join r in _db.Regions on c.RegionId equals r.Id
-                        join ri in _db.RegionI18n on r.Id equals ri.RegionId
-                        where c.Id == x.CityId && ri.Lang == L
-                        select ri.Name).FirstOrDefault(),
+                     join r in _db.Regions on c.RegionId equals r.Id
+                     join ri in _db.RegionI18n on r.Id equals ri.RegionId
+                     where c.Id == x.CityId && ri.Lang == L
+                     select ri.Name).FirstOrDefault(),
 
                 _db.ListingPhotos
                     .Where(p => p.ListingId == x.Id)
@@ -108,9 +106,12 @@ public class ListingsController : ControllerBase
         return dto is null ? NotFound() : Ok(dto);
     }
 
-    // ✅ POST /api/listings?lang=ru
+    // ✅ POST /api/listings (JSON)
     [HttpPost]
-    public async Task<ActionResult<ListingDto>> Create([FromQuery] string? lang, [FromBody] CreateListingRequest req, CancellationToken ct)
+    public async Task<ActionResult<ListingDto>> Create(
+        [FromQuery] string? lang,
+        [FromBody] CreateListingRequest req,
+        CancellationToken ct)
     {
         Guid userId;
         try { userId = GetUserIdOrThrow(Request); }
@@ -121,14 +122,12 @@ public class ListingsController : ControllerBase
 
         var categoryExists = await _db.Categories.AsNoTracking()
             .AnyAsync(c => c.Id == req.CategoryId && c.IsEnabled, ct);
-
         if (!categoryExists) return BadRequest("Category not found");
 
         if (req.CityId.HasValue)
         {
             var cityExists = await _db.Cities.AsNoTracking()
                 .AnyAsync(c => c.Id == req.CityId.Value && c.IsActive, ct);
-
             if (!cityExists) return BadRequest("City not found");
         }
 
@@ -152,6 +151,108 @@ public class ListingsController : ControllerBase
         var dto = await ToDto(entity.Id, lang, ct);
         return Ok(dto);
     }
+
+    // ========= MULTIPART =========
+
+    public class CreateListingForm
+    {
+        public Guid CategoryId { get; set; }
+        public Guid? CityId { get; set; }
+        public string Title { get; set; } = "";
+        public decimal Price { get; set; }
+        public string? Description { get; set; }
+
+        // имя поля на фронте: photos
+        public List<IFormFile> Photos { get; set; } = new();
+    }
+
+    // ✅ POST /api/listings/multipart  (FormData + photos)
+    [HttpPost("multipart")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<ListingDto>> CreateMultipart(
+        [FromQuery] string? lang,
+        [FromForm] CreateListingForm form,
+        CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        if (string.IsNullOrWhiteSpace(form.Title)) return BadRequest("Title is required");
+        if (form.Price < 0) return BadRequest("Price must be >= 0");
+
+        var categoryExists = await _db.Categories.AsNoTracking()
+            .AnyAsync(c => c.Id == form.CategoryId && c.IsEnabled, ct);
+        if (!categoryExists) return BadRequest("Category not found");
+
+        if (form.CityId.HasValue)
+        {
+            var cityExists = await _db.Cities.AsNoTracking()
+                .AnyAsync(c => c.Id == form.CityId.Value && c.IsActive, ct);
+            if (!cityExists) return BadRequest("City not found");
+        }
+
+        var entity = new Listing
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = userId,
+            CategoryId = form.CategoryId,
+            Title = form.Title.Trim(),
+            Price = form.Price,
+            Description = form.Description ?? "",
+            CityId = form.CityId,
+            IsPublished = true,
+            CreatedAtUtc = DateTime.UtcNow,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+
+        _db.Listings.Add(entity);
+        await _db.SaveChangesAsync(ct);
+
+        // ✅ сохранить фото
+        if (form.Photos is { Count: > 0 })
+        {
+            var root = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var dir = Path.Combine(root, "uploads", "listings", entity.Id.ToString());
+            Directory.CreateDirectory(dir);
+
+            var sortOrder = 1;
+            foreach (var file in form.Photos)
+            {
+                if (file.Length == 0) continue;
+
+                var ext = Path.GetExtension(file.FileName);
+                if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
+
+                var photoId = Guid.NewGuid();
+                var fileName = $"{photoId}{ext}";
+                var absPath = Path.Combine(dir, fileName);
+
+                await using (var stream = System.IO.File.Create(absPath))
+                    await file.CopyToAsync(stream, ct);
+
+                var url = $"/uploads/listings/{entity.Id}/{fileName}";
+
+                _db.ListingPhotos.Add(new ListingPhoto
+                {
+                    Id = photoId,
+                    ListingId = entity.Id,
+                    Url = url,
+                    SortOrder = sortOrder,
+                    IsMain = sortOrder == 1 // первая — main
+                });
+
+                sortOrder++;
+            }
+
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var dto = await ToDto(entity.Id, lang, ct);
+        return Ok(dto);
+    }
+
+    // ========= DTO =========
 
     private async Task<ListingDto?> ToDto(Guid id, string? lang, CancellationToken ct)
     {
