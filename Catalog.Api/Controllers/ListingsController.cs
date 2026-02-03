@@ -370,7 +370,6 @@ public class ListingsController : ControllerBase
         entity.Price = req.Price;
         entity.Description = req.Description ?? "";
         entity.CityId = req.CityId;
-        entity.CategoryId = req.CategoryId;
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
