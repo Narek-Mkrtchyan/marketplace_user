@@ -3,6 +3,7 @@ using Catalog.Api.Auth;
 using Catalog.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.FileProviders;
 
 namespace Catalog.Api;
 
@@ -86,7 +87,14 @@ public class Program
         var app = builder.Build();
         app.UseDeveloperExceptionPage();
         app.UseStaticFiles();
+        var uploadsPath = "/app/wwwroot/uploads";
+        Directory.CreateDirectory(uploadsPath);
 
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(uploadsPath),
+            RequestPath = "/uploads"
+        });
         app.Use(async (ctx, next) =>
         {
             try
