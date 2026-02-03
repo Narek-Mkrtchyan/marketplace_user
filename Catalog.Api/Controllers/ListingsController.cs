@@ -292,4 +292,227 @@ public class ListingsController : ControllerBase
             seller
         );
     }
+    
+    // ✅ GET /api/listings/my?lang=ru
+   
+    [HttpGet("my")]
+    public async Task<ActionResult<List<ListingPreviewDto>>> My([FromQuery] string? lang, CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        var L = NormalizeLang(lang);
+
+        var result = await _db.Listings.AsNoTracking()
+            .Where(x => x.OwnerUserId == userId)          // ✅ ВАЖНО: OwnerUserId
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => new ListingPreviewDto(
+                x.Id,
+                x.Title,
+                x.Price,
+                x.CreatedAtUtc,
+                x.CityId,
+
+                x.CityId == null ? null :
+                    _db.CityI18n
+                        .Where(ci => ci.CityId == x.CityId && ci.Lang == L)
+                        .Select(ci => ci.Name)
+                        .FirstOrDefault(),
+
+                x.CityId == null ? null :
+                    (from c in _db.Cities
+                        join r in _db.Regions on c.RegionId equals r.Id
+                        join ri in _db.RegionI18n on r.Id equals ri.RegionId
+                        where c.Id == x.CityId && ri.Lang == L
+                        select ri.Name).FirstOrDefault(),
+
+                _db.ListingPhotos
+                    .Where(p => p.ListingId == x.Id)
+                    .OrderByDescending(p => p.IsMain)
+                    .ThenBy(p => p.SortOrder)
+                    .Select(p => p.Url)
+                    .FirstOrDefault()
+            ))
+            .ToListAsync(ct);
+
+        return Ok(result);
+    }
+
+    // ✅ PUT /api/listings/{id}
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(
+        Guid id,
+        [FromBody] CreateListingRequest req,
+        CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        var entity = await _db.Listings
+            .FirstOrDefaultAsync(x => x.Id == id, ct);
+
+        if (entity is null)
+            return NotFound();
+
+        
+        if (entity.OwnerUserId != userId)
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest("Title is required");
+
+        if (req.Price < 0)
+            return BadRequest("Price must be >= 0");
+
+        entity.Title = req.Title.Trim();
+        entity.Price = req.Price;
+        entity.Description = req.Description ?? "";
+        entity.CityId = req.CityId;
+        entity.CategoryId = req.CategoryId;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await ToDto(entity.Id, null, ct);
+        return Ok(dto);
+    }
+
+    [HttpPost("{id:guid}/photos")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> AddPhotos(Guid id, [FromForm] List<IFormFile> photos, CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        var listing = await _db.Listings.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (listing is null) return NotFound();
+        if (listing.OwnerUserId != userId) return Forbid();
+
+        if (photos is null || photos.Count == 0) return BadRequest("No photos");
+
+        var root = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        var dir = Path.Combine(root, "uploads", "listings", listing.Id.ToString());
+        Directory.CreateDirectory(dir);
+
+        var maxSort = await _db.ListingPhotos
+            .Where(p => p.ListingId == listing.Id)
+            .Select(p => (int?)p.SortOrder)
+            .MaxAsync(ct) ?? 0;
+
+        var sortOrder = maxSort + 1;
+
+        foreach (var file in photos)
+        {
+            if (file.Length == 0) continue;
+
+            var ext = Path.GetExtension(file.FileName);
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
+
+            var photoId = Guid.NewGuid();
+            var fileName = $"{photoId}{ext}";
+            var absPath = Path.Combine(dir, fileName);
+
+            await using (var stream = System.IO.File.Create(absPath))
+                await file.CopyToAsync(stream, ct);
+
+            var url = $"/uploads/listings/{listing.Id}/{fileName}";
+
+            _db.ListingPhotos.Add(new ListingPhoto
+            {
+                Id = photoId,
+                ListingId = listing.Id,
+                Url = url,
+                SortOrder = sortOrder,
+                IsMain = false
+            });
+
+            sortOrder++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await ToDto(listing.Id, null, ct);
+        return Ok(dto);
+    }
+    
+    [HttpPost("{id:guid}/photos/{photoId:guid}/main")]
+    public async Task<IActionResult> SetMainPhoto(Guid id, Guid photoId, CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        var listing = await _db.Listings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (listing is null) return NotFound();
+        if (listing.OwnerUserId != userId) return Forbid();
+
+        var ok = await _db.ListingPhotos
+            .AsNoTracking()
+            .AnyAsync(p => p.Id == photoId && p.ListingId == id, ct);
+
+        if (!ok) return BadRequest("Photo does not belong to listing");
+
+        await _db.Database.ExecuteSqlInterpolatedAsync($@"
+        UPDATE public.listing_photos
+        SET is_main = (id = {photoId})
+        WHERE listing_id = {id};
+    ", ct);
+
+        var dto = await ToDto(id, null, ct);
+        return Ok(dto);
+    }
+
+
+
+    [HttpDelete("{id:guid}/photos/{photoId:guid}")]
+    public async Task<IActionResult> DeletePhoto(Guid id, Guid photoId, CancellationToken ct)
+    {
+        Guid userId;
+        try { userId = GetUserIdOrThrow(Request); }
+        catch (Exception ex) { return BadRequest(ex.Message); }
+
+        // listing ownership check
+        var listing = await _db.Listings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (listing is null) return NotFound();
+        if (listing.OwnerUserId != userId) return Forbid();
+
+        var photo = await _db.ListingPhotos.FirstOrDefaultAsync(p => p.Id == photoId && p.ListingId == id, ct);
+        if (photo is null) return NotFound();
+
+        var wasMain = photo.IsMain;
+
+        try
+        {
+            var rel = photo.Url.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString());
+            var abs = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", rel);
+            if (System.IO.File.Exists(abs)) System.IO.File.Delete(abs);
+        }
+        catch
+        {
+        }
+
+        _db.ListingPhotos.Remove(photo);
+        await _db.SaveChangesAsync(ct);
+
+        if (wasMain)
+        {
+            var next = await _db.ListingPhotos
+                .Where(p => p.ListingId == id)
+                .OrderBy(p => p.SortOrder)
+                .FirstOrDefaultAsync(ct);
+
+            if (next != null)
+            {
+                next.IsMain = true;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
+        var dto = await ToDto(id, null, ct);
+        return Ok(dto);
+    }
+
 }
