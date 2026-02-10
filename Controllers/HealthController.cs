@@ -6,6 +6,10 @@ namespace ListamCompetitor.Api.Controllers;
 [Route("health")]
 public class HealthController : ControllerBase
 {
-    [HttpGet]
-    public IActionResult Get() => Ok(new { ok = true });
+    [HttpGet("debug/claims")]
+    public IActionResult Claims()
+    {
+        return Ok(User.Claims.Select(c => new { c.Type, c.Value }).ToList());
+    }
+
 }

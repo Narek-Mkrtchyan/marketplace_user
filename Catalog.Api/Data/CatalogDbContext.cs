@@ -80,16 +80,20 @@ public class CatalogDbContext : DbContext
 
         modelBuilder.Entity<CategoryTranslation>(e =>
         {
-            e.ToTable("category_translations", "public");
-            e.HasKey(x => x.Id);
+            e.ToTable("category_i18n", "public");
 
-            e.Property(x => x.Id).HasColumnName("id");
+            e.HasKey(x => new { x.CategoryId, x.Lang });
+
             e.Property(x => x.CategoryId).HasColumnName("category_id");
             e.Property(x => x.Lang).HasColumnName("lang").HasMaxLength(5).IsRequired();
-            e.Property(x => x.Name).HasColumnName("name").IsRequired();
+            e.Property(x => x.Title).HasColumnName("title").IsRequired();
 
-            e.HasIndex(x => new { x.CategoryId, x.Lang }).IsUnique();
+            e.HasOne(x => x.Category)
+                .WithMany(c => c.Translations)
+                .HasForeignKey(x => x.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
+
 
         // ===== Category Attributes =====
         modelBuilder.Entity<CategoryAttribute>(e =>

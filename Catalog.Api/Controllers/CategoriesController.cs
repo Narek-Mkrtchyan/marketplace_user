@@ -38,9 +38,10 @@ public class CategoriesController : ControllerBase
                 x.Icon,
                 x.ParentId,
                 Title =
-                    x.Translations.Where(t => t.Lang == lang).Select(t => t.Name).FirstOrDefault()
-                    ?? x.Translations.Where(t => t.Lang == "ru").Select(t => t.Name).FirstOrDefault()
+                    x.Translations.Where(t => t.Lang == lang).Select(t => t.Title).FirstOrDefault()
+                    ?? x.Translations.Where(t => t.Lang == "ru").Select(t => t.Title).FirstOrDefault()
                     ?? x.Slug
+
             })
             .ToListAsync(ct);
 
