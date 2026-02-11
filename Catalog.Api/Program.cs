@@ -93,15 +93,15 @@ public class Program
 
         var app = builder.Build();
         app.UseDeveloperExceptionPage();
-        app.UseStaticFiles();
-        var uploadsPath = "/app/wwwroot/uploads";
-        Directory.CreateDirectory(uploadsPath);
-
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = new PhysicalFileProvider(uploadsPath),
-            RequestPath = "/uploads"
-        });
+        // app.UseStaticFiles();
+        // var uploadsPath = "/app/wwwroot/uploads";
+        // Directory.CreateDirectory(uploadsPath);
+        //
+        // app.UseStaticFiles(new StaticFileOptions
+        // {
+        //     FileProvider = new PhysicalFileProvider(uploadsPath),
+        //     RequestPath = "/uploads"
+        // });
         app.Use(async (ctx, next) =>
         {
             try

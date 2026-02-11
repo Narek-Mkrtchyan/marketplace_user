@@ -45,7 +45,8 @@ public class ListingPhotosController : ControllerBase
         if (file is null || file.Length == 0) return BadRequest("file is required");
         if (!file.ContentType.StartsWith("image/")) return BadRequest("Only images allowed");
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads", "listings", listingId.ToString());
+        var root = Environment.GetEnvironmentVariable("UPLOADS_ROOT") ?? "/app/uploads";
+        var uploadsDir = Path.Combine(root, "listings", listingId.ToString());
         Directory.CreateDirectory(uploadsDir);
 
         var ext = Path.GetExtension(file.FileName);
