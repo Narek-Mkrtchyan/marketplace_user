@@ -209,11 +209,12 @@ public class ListingsController : ControllerBase
         _db.Listings.Add(entity);
         await _db.SaveChangesAsync(ct);
 
-        // ✅ сохранить фото
+        // ✅ save Photo
         if (form.Photos is { Count: > 0 })
         {
-            var root = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var dir = Path.Combine(root, "uploads", "listings", entity.Id.ToString());
+            var root = Environment.GetEnvironmentVariable("UPLOADS_ROOT") ?? "/app/uploads";
+            var dir = Path.Combine(root, "listings", entity.Id.ToString());
+
             Directory.CreateDirectory(dir);
 
             var sortOrder = 1;
@@ -392,8 +393,8 @@ public class ListingsController : ControllerBase
 
         if (photos is null || photos.Count == 0) return BadRequest("No photos");
 
-        var root = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-        var dir = Path.Combine(root, "uploads", "listings", listing.Id.ToString());
+        var root = Environment.GetEnvironmentVariable("UPLOADS_ROOT") ?? "/app/uploads";
+        var dir = Path.Combine(root, "listings", listing.Id.ToString());
         Directory.CreateDirectory(dir);
 
         var maxSort = await _db.ListingPhotos
@@ -485,8 +486,10 @@ public class ListingsController : ControllerBase
 
         try
         {
-            var rel = photo.Url.TrimStart('/').Replace("/", Path.DirectorySeparatorChar.ToString());
-            var abs = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", rel);
+            var root = Environment.GetEnvironmentVariable("UPLOADS_ROOT") ?? "/app/uploads";
+            var rel = photo.Url.Replace("/uploads/", "").TrimStart('/');
+            rel = rel.Replace("/", Path.DirectorySeparatorChar.ToString());
+            var abs = Path.Combine(root, rel);
             if (System.IO.File.Exists(abs)) System.IO.File.Delete(abs);
         }
         catch
@@ -505,9 +508,13 @@ public class ListingsController : ControllerBase
 
             if (next != null)
             {
-                next.IsMain = true;
-                await _db.SaveChangesAsync(ct);
+                await _db.Database.ExecuteSqlInterpolatedAsync($@"
+                UPDATE public.listing_photos
+                SET is_main = (id = {next.Id})
+                WHERE listing_id = {id};
+    ", ct);
             }
+
         }
 
         var dto = await ToDto(id, null, ct);
