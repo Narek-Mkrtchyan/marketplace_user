@@ -34,22 +34,39 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Review>(x =>
         {
             x.ToTable("reviews");
-            x.HasKey(r => r.Id);
 
-            x.Property(r => r.Rating)
+            x.HasKey(r => r.Id);
+            x.Property(r => r.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            x.Property(r => r.AuthorId)
+                .HasColumnName("author_id")
                 .IsRequired();
 
-            x.HasIndex(r => r.TargetUserId);
-            x.HasIndex(r => r.AuthorId);
+            x.Property(r => r.TargetUserId)
+                .HasColumnName("target_user_id")
+                .IsRequired();
 
-            x.HasCheckConstraint(
-                "ck_reviews_rating",
-                "\"Rating\" >= 1 AND \"Rating\" <= 5");
+            x.Property(r => r.Rating)
+                .HasColumnName("rating")
+                .IsRequired();
 
-            x.HasCheckConstraint(
-                "ck_reviews_no_self",
-                "\"AuthorId\" <> \"TargetUserId\"");
+            x.Property(r => r.Comment)
+                .HasColumnName("comment");
+
+            x.Property(r => r.CreatedAtUtc)
+                .HasColumnName("created_at_utc")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            x.HasIndex(r => r.TargetUserId).HasDatabaseName("idx_reviews_target_user_id");
+            x.HasIndex(r => r.AuthorId).HasDatabaseName("idx_reviews_author_id");
+
+            x.HasCheckConstraint("ck_reviews_rating", "rating >= 1 AND rating <= 5");
+            x.HasCheckConstraint("ck_reviews_no_self", "author_id <> target_user_id");
         });
+
 
         base.OnModelCreating(modelBuilder);
     }
