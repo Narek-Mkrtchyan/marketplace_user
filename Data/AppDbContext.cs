@@ -10,7 +10,8 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Listing> Listings => Set<Listing>();
-
+    public DbSet<Review> Reviews => Set<Review>();
+    
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>()
@@ -29,6 +30,26 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Listing>()
             .Property(x => x.Title)
             .HasMaxLength(200);
+        
+        modelBuilder.Entity<Review>(x =>
+        {
+            x.ToTable("reviews");
+            x.HasKey(r => r.Id);
+
+            x.Property(r => r.Rating)
+                .IsRequired();
+
+            x.HasIndex(r => r.TargetUserId);
+            x.HasIndex(r => r.AuthorId);
+
+            x.HasCheckConstraint(
+                "ck_reviews_rating",
+                "\"Rating\" >= 1 AND \"Rating\" <= 5");
+
+            x.HasCheckConstraint(
+                "ck_reviews_no_self",
+                "\"AuthorId\" <> \"TargetUserId\"");
+        });
 
         base.OnModelCreating(modelBuilder);
     }

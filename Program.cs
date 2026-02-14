@@ -2,6 +2,7 @@ using System.Text;
 using ListamCompetitor.Api.Auth;
 using ListamCompetitor.Api.Data;
 using ListamCompetitor.Api.Models;
+using ListamCompetitor.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -26,11 +27,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<JwtTokenService>();
 
+builder.Services.AddScoped<IReviewsService, ReviewsService>();
+
 // Mail
 builder.Services.Configure<MailSettings>(builder.Configuration.GetSection("Mail"));
 builder.Services.AddScoped<IMailService, SmtpMailService>();
 
-// CORS (ВАЖНО: один источник правды — лучше тут, а не в nginx)
+// CORS 
 builder.Services.AddCors(opt =>
 {
     opt.AddPolicy("Default", p => p
@@ -134,14 +137,11 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/uploads"
 });
 
-// -------------------- PIPELINE ORDER (КЛЮЧЕВО ДЛЯ CORS) --------------------
 
 app.UseRouting();
 
-// CORS ДО auth
 app.UseCors("Default");
 
-// (Опционально) явный ответ на OPTIONS, чтобы вообще никогда не было 405/404 на preflight
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Method == "OPTIONS")
