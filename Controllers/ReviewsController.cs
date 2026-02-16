@@ -8,7 +8,6 @@ namespace ListamCompetitor.Api.Controllers;
 
 [ApiController]
 [Route("api/reviews")]
-[Authorize]
 public sealed class ReviewsController : ControllerBase
 {
     private readonly IReviewsService _service;
