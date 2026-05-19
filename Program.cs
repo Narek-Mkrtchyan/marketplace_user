@@ -12,48 +12,58 @@ var builder = WebApplication.CreateBuilder(args);
 
 // -------------------- SERVICES --------------------
 
-// Controllers
 builder.Services.AddControllers();
 
-// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Db
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-// JWT services
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.AddSingleton<JwtTokenService>();
 
 builder.Services.AddScoped<IReviewsService, ReviewsService>();
 
-// Mail
 builder.Services.Configure<MailSettings>(builder.Configuration.GetSection("Mail"));
 builder.Services.AddScoped<IMailService, SmtpMailService>();
 
-// CORS 
-builder.Services.AddCors(opt =>
+// -------------------- CORS --------------------
+
+builder.Services.AddCors(options =>
 {
-    opt.AddPolicy("Default", p => p
-        .WithOrigins(
-            "https://dev.moll.am",
-            "http://localhost:5173",
-            "http://localhost:5174",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:5174",
-            "http://localhost:5001",
-            "http://127.0.0.1:5001",
-            "http://127.0.0.1:5002"
-        )
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials()
-    );
+    options.AddPolicy("Default", policy =>
+    {
+        policy
+            .WithOrigins(
+                "https://dev.moll.am",
+                "https://moll.am",
+
+                "http://localhost:5173",
+                "https://localhost:5173",
+                "http://localhost:5174",
+                "https://localhost:5174",
+
+                "http://127.0.0.1:5173",
+                "https://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+                "https://127.0.0.1:5174",
+
+                "http://localhost:5001",
+                "https://localhost:5001",
+                "http://127.0.0.1:5001",
+                "https://127.0.0.1:5001",
+                "http://127.0.0.1:5002",
+                "https://127.0.0.1:5002"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
 });
 
-// JWT auth
+// -------------------- JWT AUTH --------------------
+
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
 
 Console.WriteLine($"ENV={builder.Environment.EnvironmentName}");
@@ -66,9 +76,9 @@ var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key));
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opt =>
+    .AddJwtBearer(options =>
     {
-        opt.TokenValidationParameters = new TokenValidationParameters
+        options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = true,
@@ -80,26 +90,28 @@ builder.Services
             ClockSkew = TimeSpan.FromMinutes(1)
         };
 
-        opt.Events = new JwtBearerEvents
+        options.Events = new JwtBearerEvents
         {
-            OnMessageReceived = ctx =>
+            OnMessageReceived = context =>
             {
-                var auth = ctx.Request.Headers.Authorization.ToString();
-                Console.WriteLine($"[JWT] {ctx.Request.Method} {ctx.Request.Path} AuthHeader=" +
+                var auth = context.Request.Headers.Authorization.ToString();
+
+                Console.WriteLine($"[JWT] {context.Request.Method} {context.Request.Path} AuthHeader=" +
                                   (string.IsNullOrWhiteSpace(auth)
                                       ? "<EMPTY>"
                                       : auth[..Math.Min(35, auth.Length)] + "..."));
+
                 return Task.CompletedTask;
             },
-            OnAuthenticationFailed = ctx =>
+            OnAuthenticationFailed = context =>
             {
-                Console.WriteLine("[JWT] AuthenticationFailed: " + ctx.Exception.Message);
+                Console.WriteLine("[JWT] AuthenticationFailed: " + context.Exception.Message);
                 return Task.CompletedTask;
             },
-            OnChallenge = ctx =>
+            OnChallenge = context =>
             {
-                Console.WriteLine("[JWT] Challenge: " + (ctx.Error ?? "<no error>") +
-                                  " | " + (ctx.ErrorDescription ?? "<no desc>"));
+                Console.WriteLine("[JWT] Challenge: " + (context.Error ?? "<no error>") +
+                                  " | " + (context.ErrorDescription ?? "<no desc>"));
                 return Task.CompletedTask;
             }
         };
@@ -107,6 +119,7 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// -------------------- APP --------------------
 
 var app = builder.Build();
 
@@ -118,15 +131,18 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-app.UseStaticFiles();
 
-// uploads folder
+// -------------------- STATIC FILES --------------------
+
 var webRoot = app.Environment.WebRootPath;
+
 if (string.IsNullOrWhiteSpace(webRoot))
 {
     webRoot = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
     Directory.CreateDirectory(webRoot);
 }
+
+app.UseStaticFiles();
 
 var uploadsPath = Path.Combine(webRoot, "uploads");
 Directory.CreateDirectory(uploadsPath);
@@ -137,29 +153,17 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/uploads"
 });
 
+// -------------------- PIPELINE --------------------
 
 app.UseRouting();
 
 app.UseCors("Default");
-
-app.Use(async (ctx, next) =>
-{
-    if (ctx.Request.Method == "OPTIONS")
-    {
-        ctx.Response.StatusCode = StatusCodes.Status204NoContent;
-        await ctx.Response.CompleteAsync();
-        return;
-    }
-
-    await next();
-});
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
-// Controllers mapping
 app.MapControllers();
 
 app.Run();
